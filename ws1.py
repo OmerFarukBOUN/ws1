@@ -168,115 +168,48 @@ def chat_with(target):
     print(f"Chat with {target}")
     print("(Enter empty line or Ctrl+C to return)\n")
 
-    t = threading.Thread(target=input_thread, args=(target,), daemon=True)
-    t.start()
-
     last_len = 0
 
-    while not stop_chat:
-        with lock:
-            if len(chat_history[target]) != last_len:
-                os.system("clear")
-                print(f"Chat with {target}\n")
-                for line in chat_history[target]:
-                    print(line)
-                print("\n> ", end="", flush=True)
-                last_len = len(chat_history[target])
+    try:
+        while not stop_chat:
+            with lock:
+                if len(chat_history[target]) != last_len:
+                    os.system("clear")
+                    print(f"Chat with {target}\n")
+                    for line in chat_history[target]:
+                        print(line)
+                    print("\n> ", end="", flush=True)
+                    last_len = len(chat_history[target])
 
-        time.sleep(0.05)  # prevents CPU burn
+            time.sleep(0.05)
+
+    except KeyboardInterrupt:
+        stop_chat = True
 
     print("\nLeaving chat...")
 
 
+
 def main():
     global username, my_ip
-    username = input("Enter username: ").strip()
     my_ip = get_my_ip()
-
     threading.Thread(target=listener, daemon=True).start()
+    broadcast_ask()
+    username = input("Enter username: ").strip()
 
     broadcast_ask()
     while True:
         draw_menu()
         target = input().strip()
         if target in known_users:
+            t = threading.Thread(target=input_thread, args=(target,), daemon=True)
+            t.start()
             chat_with(target)
         elif target != "":
             print("Unknown user.")
             time.sleep(1)
         else:
             broadcast_ask()
-
-# def menu():
-#     global ui_mode
-#     while True:
-#         time.sleep(REFRESH_INTERVAL)
-
-#         with ui_lock:
-#             if ui_mode != "menu":
-#                 continue
-
-#             draw_menu()
-
-
-
-# def chat_with(target):
-#     global ui_mode
-
-#     with ui_lock:
-#         ui_mode = "chat"
-#         os.system("clear")
-#         print(f"Chat with {target}\n")
-#         print("(Enter empty line or Ctrl+C to return)\n")
-
-#         with lock:
-#             for line in chat_history[target]:
-#                 print(line)
-
-#     while True:
-#         try:
-#             msg = input("> ")
-#         except KeyboardInterrupt:
-#             break
-
-#         if msg == "":
-#             break
-
-#         packet = {
-#             "type": "MESSAGE",
-#             "SENDER_IP": my_ip,
-#             "SENDER_NAME": username,
-#             "PAYLOAD": msg[:MAX_PAYLOAD]
-#         }
-
-#         send_packet(known_users[target], packet)
-
-#         with lock:
-#             chat_history[target].append(f"You: {msg}")
-
-#     with ui_lock:
-#         ui_mode = "menu"
-#         draw_menu()
-
-
-
-# def main():
-#     global username, my_ip
-
-#     username = input("Enter username: ").strip()
-#     my_ip = get_my_ip()
-
-#     threading.Thread(target=listener, daemon=True).start()
-
-#     broadcast_ask()
-#     threading.Thread(target=menu, daemon=True).start()
-#     draw_menu()
-#     while True:
-#         target = input().strip()
-#         if target in known_users:
-#             chat_with(target)
-#         broadcast_ask()
-
 
 if __name__ == "__main__":
     main()
