@@ -6,17 +6,17 @@ import time
 import os
 import socket
 import sys
+import select
 
 PORT = 12487
 MAX_PAYLOAD = 2048
 REFRESH_INTERVAL = 10
 
-contacts = {}       # name -> ip
-online = {}         # name -> ip
-chats = {}          # name -> [messages]
+contacts = {}   # name -> ip (last known)
+online = {}     # name -> ip (current scan)
+chats = {}      # name -> [messages]
 lock = threading.Lock()
 
-# ---------- terminal helpers ----------
 BOLD = "\033[1m"
 RED = "\033[31m"
 RESET = "\033[0m"
@@ -24,7 +24,7 @@ RESET = "\033[0m"
 def clear():
     os.system("clear")
 
-# ---------- networking ----------
+# ---------- network ----------
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.connect(("192.168.1.1", 80))
@@ -35,46 +35,41 @@ def get_local_ip():
 MY_IP = get_local_ip()
 SUBNET = ".".join(MY_IP.split(".")[:3])
 
-# ---------- netcat wrappers ----------
-def nc_send(ip, data):
+# ---------- netcat ----------
+def start_listener():
+    return subprocess.Popen(
+        ["nc", "-l", "-p", str(PORT)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        bufsize=1
+    )
+
+def nc_send(ip, packet):
     try:
         p = subprocess.Popen(
             ["nc", ip, str(PORT)],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            text=True
         )
-        p.communicate(json.dumps(data).encode(), timeout=1)
+        p.communicate(json.dumps(packet) + "\n", timeout=1)
     except:
         pass
 
-def nc_listen():
-    p = subprocess.Popen(
-        ["nc", "-l", "-p", str(PORT)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL
-    )
-    out, _ = p.communicate()
-    if not out:
-        return None
-    try:
-        return json.loads(out.decode())
-    except:
-        return None
-
 # ---------- protocol ----------
 def broadcast_ask():
-    packet = {
+    pkt = {
         "type": "ASK",
         "SENDER_IP": MY_IP
     }
     for i in range(1, 255):
         ip = f"{SUBNET}.{i}"
         if ip != MY_IP:
-            nc_send(ip, packet)
+            nc_send(ip, pkt)
 
 def handle_packet(pkt):
-    global online
     if pkt["type"] == "ASK":
         reply = {
             "type": "REPLY",
@@ -84,22 +79,27 @@ def handle_packet(pkt):
         nc_send(pkt["SENDER_IP"], reply)
 
     elif pkt["type"] == "REPLY":
+        name = pkt["RECEIVER_NAME"]
+        ip = pkt["RECEIVER_IP"]
         with lock:
-            online[pkt["RECEIVER_NAME"]] = pkt["RECEIVER_IP"]
-            contacts.setdefault(pkt["RECEIVER_NAME"], pkt["RECEIVER_IP"])
+            online[name] = ip
+            contacts.setdefault(name, ip)
 
     elif pkt["type"] == "MESSAGE":
         name = pkt["SENDER_NAME"]
-        chats.setdefault(name, []).append(
-            f"{name}: {pkt['PAYLOAD']}"
-        )
+        chats.setdefault(name, []).append(f"{name}: {pkt['PAYLOAD']}")
 
-# ---------- background threads ----------
-def listener():
+# ---------- threads ----------
+def listener_loop(proc):
     while True:
-        pkt = nc_listen()
-        if pkt:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        try:
+            pkt = json.loads(line.strip())
             handle_packet(pkt)
+        except:
+            pass
 
 def refresher():
     while True:
@@ -111,7 +111,7 @@ def refresher():
 # ---------- UI ----------
 def show_menu():
     clear()
-    print(f"Your name: {USERNAME} | IP: {MY_IP}\n")
+    print(f"{USERNAME} @ {MY_IP}\n")
     for name, ip in contacts.items():
         if name in online:
             print(f"{BOLD}{name}{RESET}")
@@ -119,7 +119,7 @@ def show_menu():
             print(f"{RED}{name}{RESET}")
         else:
             print(name)
-    print("\nSelect username or press ENTER to refresh:")
+    print("\nSelect user or ENTER to refresh:")
 
 def chat_with(name):
     chats.setdefault(name, [])
@@ -133,20 +133,21 @@ def chat_with(name):
             return
         if len(msg.encode()) > MAX_PAYLOAD:
             continue
-        packet = {
+        pkt = {
             "type": "MESSAGE",
             "SENDER_IP": MY_IP,
             "SENDER_NAME": USERNAME,
             "PAYLOAD": msg
         }
         if name in contacts:
-            nc_send(contacts[name], packet)
+            nc_send(contacts[name], pkt)
             chats[name].append(f"You: {msg}")
 
 # ---------- main ----------
-USERNAME = input("Enter your username: ").strip()
+USERNAME = input("Username: ").strip()
 
-threading.Thread(target=listener, daemon=True).start()
+listener_proc = start_listener()
+threading.Thread(target=listener_loop, args=(listener_proc,), daemon=True).start()
 threading.Thread(target=refresher, daemon=True).start()
 
 while True:
