@@ -41,7 +41,7 @@ def send_packet(ip, packet):
         return
     print(f"Sending packet to {ip}: {data}")
     subprocess.Popen(
-        ["nc", ip, str(PORT)],
+        ["nc", "-q", "0", ip, str(PORT)],
         stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
