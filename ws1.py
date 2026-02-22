@@ -54,10 +54,28 @@ def broadcast_ask():
         "SENDER_IP": my_ip
     }
 
-    # common LAN broadcast patterns
-    for suffix in range(1, 255):
-        ip = ".".join(my_ip.split(".")[:3]) + f".{suffix}"
-        send_packet(ip, packet)
+    data = json.dumps(packet).encode()
+    base = ".".join(my_ip.split(".")[:3])
+
+    for i in range(1, 255):
+        ip = f"{base}.{i}"
+        if ip == my_ip:
+            continue
+
+        try:
+            p = subprocess.Popen(
+                ["nc", "-w", "1", ip, str(PORT)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            p.stdin.write(data)
+            p.stdin.close()
+            # DO NOT wait(), DO NOT communicate()
+        except:
+            pass
+
+
 
 
 def listener():
