@@ -39,6 +39,7 @@ def send_packet(ip, packet):
     data = json.dumps(packet)
     if len(data.encode()) > MAX_PAYLOAD:
         return
+    print(f"Sending packet to {ip}: {data}")
     subprocess.Popen(
         ["nc", ip, str(PORT)],
         stdin=subprocess.PIPE,
@@ -67,6 +68,7 @@ def listener():
             stderr=subprocess.DEVNULL
         )
         data = proc.stdout.read()
+        print(data)
         try:
             msg = json.loads(data.decode())
             handle_packet(msg)
