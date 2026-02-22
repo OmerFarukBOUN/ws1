@@ -167,6 +167,7 @@ def chat_with(target):
     os.system("clear")
     print(f"Chat with {target}")
     print("(Enter empty line or Ctrl+C to return)\n")
+    print("\n> ", end="", flush=True)
 
     last_len = 0
 
@@ -200,7 +201,11 @@ def main():
     broadcast_ask()
     while True:
         draw_menu()
-        target = input().strip()
+        try:
+            target = input()
+            target = target.strip()
+        except KeyboardInterrupt:
+            break
         if target in known_users:
             t = threading.Thread(target=input_thread, args=(target,), daemon=True)
             t.start()
