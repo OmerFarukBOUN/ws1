@@ -4,154 +4,168 @@ import threading
 import json
 import time
 import os
-import socket
 import sys
-import select
+from collections import defaultdict
 
 PORT = 12487
 MAX_PAYLOAD = 2048
 REFRESH_INTERVAL = 10
 
-contacts = {}   # name -> ip (last known)
-online = {}     # name -> ip (current scan)
-chats = {}      # name -> [messages]
-lock = threading.Lock()
-
+# ANSI colors
 BOLD = "\033[1m"
 RED = "\033[31m"
 RESET = "\033[0m"
 
-def clear():
-    os.system("clear")
+username = ""
+my_ip = ""
+known_users = {}          # name -> ip
+online_users = {}         # name -> ip
+last_seen = {}            # name -> timestamp
+chat_history = defaultdict(list)
 
-# ---------- network ----------
-def get_local_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(("192.168.1.1", 80))
-    ip = s.getsockname()[0]
-    s.close()
-    return ip
+lock = threading.Lock()
 
-MY_IP = get_local_ip()
-SUBNET = ".".join(MY_IP.split(".")[:3])
 
-# ---------- netcat ----------
-def start_listener():
-    return subprocess.Popen(
-        ["nc", "-l", "-p", str(PORT)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        bufsize=1
-    )
+def get_my_ip():
+    out = subprocess.check_output(["hostname", "-I"]).decode().strip()
+    for ip in out.split():
+        if ip.startswith("192.168."):
+            return ip
+    print("No 192.168.*.* IP found")
+    sys.exit(1)
 
-def nc_send(ip, packet):
-    try:
-        p = subprocess.Popen(
-            ["nc", ip, str(PORT)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True
-        )
-        p.communicate(json.dumps(packet) + "\n", timeout=1)
-    except:
-        pass
 
-# ---------- protocol ----------
+def send_packet(ip, packet):
+    data = json.dumps(packet)
+    if len(data.encode()) > MAX_PAYLOAD:
+        return
+    subprocess.Popen(
+        ["nc", ip, str(PORT)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    ).communicate(data.encode())
+
+
 def broadcast_ask():
-    pkt = {
+    packet = {
         "type": "ASK",
-        "SENDER_IP": MY_IP
+        "SENDER_IP": my_ip
     }
-    for i in range(1, 255):
-        ip = f"{SUBNET}.{i}"
-        if ip != MY_IP:
-            nc_send(ip, pkt)
 
-def handle_packet(pkt):
-    if pkt["type"] == "ASK":
-        reply = {
-            "type": "REPLY",
-            "RECEIVER_NAME": USERNAME,
-            "RECEIVER_IP": MY_IP
-        }
-        nc_send(pkt["SENDER_IP"], reply)
+    # common LAN broadcast patterns
+    for suffix in range(1, 255):
+        ip = ".".join(my_ip.split(".")[:3]) + f".{suffix}"
+        send_packet(ip, packet)
 
-    elif pkt["type"] == "REPLY":
-        name = pkt["RECEIVER_NAME"]
-        ip = pkt["RECEIVER_IP"]
-        with lock:
-            online[name] = ip
-            contacts.setdefault(name, ip)
 
-    elif pkt["type"] == "MESSAGE":
-        name = pkt["SENDER_NAME"]
-        chats.setdefault(name, []).append(f"{name}: {pkt['PAYLOAD']}")
-
-# ---------- threads ----------
-def listener_loop(proc):
+def listener():
     while True:
-        line = proc.stdout.readline()
-        if not line:
-            break
+        proc = subprocess.Popen(
+            ["nc", "-l", str(PORT)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
+        )
+        data = proc.stdout.read()
         try:
-            pkt = json.loads(line.strip())
-            handle_packet(pkt)
+            msg = json.loads(data.decode())
+            handle_packet(msg)
         except:
             pass
 
-def refresher():
+
+def handle_packet(msg):
+    with lock:
+        if msg.get("type") == "ASK":
+            reply = {
+                "type": "REPLY",
+                "RECEIVER_NAME": username,
+                "RECEIVER_IP": my_ip
+            }
+            send_packet(msg["SENDER_IP"], reply)
+
+        elif msg.get("type") == "REPLY":
+            name = msg["RECEIVER_NAME"]
+            ip = msg["RECEIVER_IP"]
+
+            online_users[name] = ip
+            last_seen[name] = time.time()
+
+            if name in known_users and known_users[name] != ip:
+                known_users[name] = ip  # mismatch handled visually
+            else:
+                known_users.setdefault(name, ip)
+
+        elif msg.get("type") == "MESSAGE":
+            sender = msg["SENDER_NAME"]
+            payload = msg["PAYLOAD"]
+            chat_history[sender].append(f"{sender}: {payload}")
+            last_seen[sender] = time.time()
+
+
+def menu():
     while True:
-        with lock:
-            online.clear()
-        broadcast_ask()
         time.sleep(REFRESH_INTERVAL)
+        with lock:
+            os.system("clear")
+            print(f"Logged in as: {username} ({my_ip})\n")
+            print("Users:\n")
 
-# ---------- UI ----------
-def show_menu():
-    clear()
-    print(f"{USERNAME} @ {MY_IP}\n")
-    for name, ip in contacts.items():
-        if name in online:
-            print(f"{BOLD}{name}{RESET}")
-        elif ip != contacts[name]:
-            print(f"{RED}{name}{RESET}")
-        else:
-            print(name)
-    print("\nSelect user or ENTER to refresh:")
+            for name, ip in known_users.items():
+                online = name in online_users and time.time() - last_seen.get(name, 0) < REFRESH_INTERVAL * 2
+                mismatch = known_users[name] != online_users.get(name, known_users[name])
 
-def chat_with(name):
-    chats.setdefault(name, [])
+                display = name
+                if online:
+                    display = f"{BOLD}{name}{RESET}"
+                if mismatch:
+                    display = f"{RED}{name}{RESET}"
+
+                print(f" - {display}")
+
+            print("\nType username to chat, or ENTER to refresh")
+
+
+def chat_with(target):
+    os.system("clear")
+    print(f"Chat with {target}\n")
+
+    for line in chat_history[target]:
+        print(line)
+
     while True:
-        clear()
-        print(f"Chat with {name}\n")
-        for m in chats[name]:
-            print(m)
-        msg = input("\n> ")
-        if not msg:
+        msg = input("> ")
+        if msg == "":
             return
-        if len(msg.encode()) > MAX_PAYLOAD:
-            continue
-        pkt = {
+
+        packet = {
             "type": "MESSAGE",
-            "SENDER_IP": MY_IP,
-            "SENDER_NAME": USERNAME,
-            "PAYLOAD": msg
+            "SENDER_IP": my_ip,
+            "SENDER_NAME": username,
+            "PAYLOAD": msg[:MAX_PAYLOAD]
         }
-        if name in contacts:
-            nc_send(contacts[name], pkt)
-            chats[name].append(f"You: {msg}")
 
-# ---------- main ----------
-USERNAME = input("Username: ").strip()
+        send_packet(known_users[target], packet)
+        chat_history[target].append(f"You: {msg}")
 
-listener_proc = start_listener()
-threading.Thread(target=listener_loop, args=(listener_proc,), daemon=True).start()
-threading.Thread(target=refresher, daemon=True).start()
 
-while True:
-    show_menu()
-    choice = input("> ").strip()
-    if choice in contacts:
-        chat_with(choice)
+def main():
+    global username, my_ip
+
+    username = input("Enter username: ").strip()
+    my_ip = get_my_ip()
+
+    threading.Thread(target=listener, daemon=True).start()
+
+    broadcast_ask()
+    threading.Thread(target=menu, daemon=True).start()
+
+    while True:
+        target = input("> ").strip()
+        if target in known_users:
+            chat_with(target)
+        broadcast_ask()
+
+
+if __name__ == "__main__":
+    main()
