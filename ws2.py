@@ -236,14 +236,15 @@ def chat_with(target_name, target_ip):
 
 
 def resolve_target(target_name):
-    """Returns (name, ip) or None. Prompts user if duplicate name."""
     with lock:
         matches = [(name, ip) for ip, name in all_users.items() if name == target_name]
 
     if not matches:
         matches = [(name, ip) for ip, name in all_users.items() if f"{name} - {ip}" == target_name]
 
-    return matches[0]
+    if matches:
+        return matches[0]
+    return None
 
 
 def main():
