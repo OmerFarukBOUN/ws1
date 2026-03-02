@@ -1,0 +1,75 @@
+############### chat_node2 ###############
+Enter username: omer
+
+############### chat_node2 ###############
+Logged in as: omer (192.168.100.11)
+
+Users:
+
+
+Type username to chat, or ENTER to refresh
+
+> 
+############### chat_node1 ###############
+Enter username: faruk
+
+############### chat_node1 ###############
+Logged in as: faruk (192.168.100.10)
+
+Users:
+
+ - omer (192.168.100.11)
+
+Type username to chat, or ENTER to refresh
+
+> omer  
+
+############### chat_node1 ###############
+Chat with omer (192.168.100.11)
+(Enter empty line or Ctrl+C to return)
+
+
+> 
+
+############### chat_node1 ###############
+Chat with omer (192.168.100.11)
+
+You: slm
+
+> 
+
+############### chat_node2 ###############
+
+############### chat_node2 ###############
+Logged in as: omer (192.168.100.11)
+
+Users:
+
+ - faruk (192.168.100.10)
+
+Type username to chat, or ENTER to refresh
+
+> faruk
+
+############### chat_node2 ###############
+Chat with faruk (192.168.100.10)
+
+faruk: slm
+
+> nbr
+
+############### chat_node2 ###############
+Chat with faruk (192.168.100.10)
+
+faruk: slm
+You: nbr
+
+> 
+
+############### chat_node1 ###############
+Chat with omer (192.168.100.11)
+
+You: slm
+omer: nbr
+
+> 

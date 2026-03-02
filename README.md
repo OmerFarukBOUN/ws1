@@ -16,3 +16,5 @@ Start writing :)
 The program writes the possible inputs too. To go back anytime, you can use Ctrl-C. If the program does not closes after Ctrl+C, use Enter too.
 
 I tried to fix the exit issue but to no avail :/
+
+I have put "actions.txt" for screenshots.
